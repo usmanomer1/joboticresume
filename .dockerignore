@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+input/*.pdf
+output/*.pdf
+output/*.log
+output/*.aux
+output/*.tex
+!output/jakes.tex
+*.log
+*.aux
+*.out
+
+# Testing
+test_*.py
+tests/
+coverage/
+.coverage
+htmlcov/
+
+# Documentation
+README.md
+FRONTEND_INTEGRATION_GUIDE.md
+SECURITY.md
+CLAUDE.md
+docs/
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+.env.*
+config.json
+
+# Deployment
+railway.json
+railway.toml
+RAILWAY_ENV_VARS.txt
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/

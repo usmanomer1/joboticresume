@@ -1,0 +1,26 @@
+# Ignore heavy files for Railway upload
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+*.pdf
+!output/jakes.tex
+input/
+.DS_Store
+*.log
+*.aux
+*.out
+test_*
+*.ipynb
+.dockerignore
+Dockerfile.*
+README.md
+FRONTEND_INTEGRATION_GUIDE.md
+SECURITY.md
+CLAUDE.md
+*.txt
+!requirements.txt
+railway.json
+.env*
+config.json

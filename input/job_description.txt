@@ -1,0 +1,47 @@
+Senior Software Engineer - Full Stack Development
+
+About the Role:
+We are seeking an experienced Senior Software Engineer to join our dynamic team. The ideal candidate will have strong expertise in both frontend and backend development, with a passion for building scalable web applications.
+
+Key Responsibilities:
+• Design, develop, and maintain full-stack web applications using modern technologies
+• Collaborate with cross-functional teams to define, design, and ship new features
+• Write clean, maintainable, and efficient code
+• Participate in code reviews and provide constructive feedback
+• Mentor junior developers and contribute to technical documentation
+• Implement best practices for software development and deployment
+
+Required Qualifications:
+• Bachelor's degree in Computer Science or related field
+• 5+ years of experience in full-stack development
+• Strong proficiency in JavaScript, Python, or Java
+• Experience with React, Angular, or Vue.js for frontend development
+• Backend experience with Node.js, Django, or Spring Boot
+• Proficiency with SQL and NoSQL databases (PostgreSQL, MongoDB)
+• Experience with cloud platforms (AWS, Azure, or GCP)
+• Strong understanding of RESTful APIs and microservices architecture
+• Experience with Git version control and CI/CD pipelines
+• Excellent problem-solving and communication skills
+
+Preferred Qualifications:
+• Experience with Docker and Kubernetes
+• Knowledge of DevOps practices and tools
+• Experience with Agile/Scrum methodologies
+• Familiarity with machine learning concepts
+• Experience with GraphQL
+• Contributions to open-source projects
+
+Technologies We Use:
+• Frontend: React, TypeScript, Redux, Webpack
+• Backend: Node.js, Python, PostgreSQL, Redis
+• Cloud: AWS (EC2, S3, Lambda, RDS)
+• Tools: Docker, Kubernetes, Jenkins, JIRA, GitHub
+• Monitoring: Prometheus, Grafana, ELK stack
+
+What We Offer:
+• Competitive salary and equity package
+• Flexible work arrangements
+• Professional development opportunities
+• Health, dental, and vision insurance
+• 401(k) matching
+• Unlimited PTO policy

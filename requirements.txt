@@ -1,0 +1,23 @@
+PyPDF2==3.0.1
+google-generativeai==0.3.2
+python-dotenv==1.0.0
+reportlab==4.0.8
+pdfplumber==0.10.3
+requests==2.31.0
+
+# FastAPI and related
+fastapi==0.109.0
+uvicorn[standard]==0.24.0
+pydantic==2.5.3
+python-multipart==0.0.6
+
+# Supabase
+supabase==1.2.0
+
+# Security dependencies
+slowapi==0.1.9
+PyJWT==2.8.0
+
+# Production server
+redis==5.0.1
+gunicorn==21.2.0
