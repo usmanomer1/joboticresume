@@ -230,9 +230,65 @@ class GenerateRequest(BaseModel):
 
 # Keep other models the same but add validation...
 
+def escape_latex(text: str) -> str:
+    """Properly escape all special LaTeX characters"""
+    if not text:
+        return ""
+    
+    # Special handling for backslash - replace with placeholder first
+    # to avoid escaping the backslashes in our LaTeX commands
+    BACKSLASH_PLACEHOLDER = "<<<BACKSLASH_PLACEHOLDER>>>"
+    
+    result = text.replace('\\', BACKSLASH_PLACEHOLDER)
+    
+    # Now escape other characters
+    replacements = [
+        ('{', r'\{'),  # Left brace
+        ('}', r'\}'),  # Right brace  
+        ('$', r'\$'),  # Dollar
+        ('&', r'\&'),  # Ampersand
+        ('%', r'\%'),  # Percent
+        ('#', r'\#'),  # Hash
+        ('_', r'\_'),  # Underscore
+        ('^', r'\textasciicircum{}'),  # Caret
+        ('~', r'\textasciitilde{}'),  # Tilde
+    ]
+    
+    for old, new in replacements:
+        result = result.replace(old, new)
+    
+    # Finally, replace backslash placeholder with the LaTeX command
+    result = result.replace(BACKSLASH_PLACEHOLDER, r'\textbackslash{}')
+    
+    return result
+
+def validate_latex_content(content: str) -> bool:
+    """Validate LaTeX content before compilation"""
+    # Check for unmatched braces (excluding escaped ones)
+    temp = content.replace(r'\{', '').replace(r'\}', '')
+    open_braces = temp.count('{')
+    close_braces = temp.count('}')
+    
+    if open_braces != close_braces:
+        raise ValueError(f"Unmatched braces: {open_braces} open, {close_braces} close")
+    
+    # Check for required commands
+    required = [r'\begin{document}', r'\end{document}']
+    for cmd in required:
+        if cmd not in content:
+            raise ValueError(f"Missing required command: {cmd}")
+    
+    return True
+
 def create_json_extraction_prompt(optimized_resume: str, contact_info: dict) -> str:
     """Create prompt to extract structured JSON from optimized resume"""
     prompt = f"""Extract the resume content into this EXACT JSON structure. Be very careful to extract ALL information accurately.
+
+IMPORTANT URL HANDLING:
+- Keep ALL URLs exactly as they appear in the resume
+- Include full URLs (e.g., https://github.com/username/project)
+- Do NOT replace URLs with placeholder text like "link" or "website"
+- Preserve the actual URL addresses for all links
 
 RESUME CONTENT:
 {optimized_resume}
@@ -276,9 +332,11 @@ Return ONLY valid JSON in this exact format:
       "name": "Project Name",
       "tech": "Python, Flask, React, PostgreSQL",
       "dates": "",  // Use empty string if no dates
+      "link": "",  // Project URL if available (e.g., github.com/user/project)
       "bullets": [
         "What you built and why",
-        "Key features or achievements"
+        "Key features or achievements",
+        "Include any URLs mentioned in the bullets exactly as they appear"
       ]
     }}
   ],
@@ -301,6 +359,9 @@ IMPORTANT:
 - If you see placeholder text in the input, replace it with reasonable estimates
 - For optional fields like dates on projects: if not present, use empty string "" not "NONE" or "N/A"
 - Leave fields blank when information is missing rather than writing placeholder text
+- PRESERVE ALL URLs - never replace them with "link" or other placeholder text
+- Keep GitHub, LinkedIn, portfolio, and other web links exactly as they appear
+- Extract project links into the "link" field when available
 """
     return prompt
 
@@ -325,13 +386,13 @@ def build_latex_from_json(resume_json: dict) -> str:
     # Add spacing
     latex_parts.append('')
     
-    # Build the heading section
+    # Build the heading section with escaped content
     contact = resume_json['contact']
     latex_parts.append(f"""\\begin{{center}}
-    \\textbf{{\\Huge \\scshape {contact['name']}}} \\\\ \\vspace{{1pt}}
-    \\small {contact['phone']} $|$ \\href{{mailto:{contact['email']}}}{{\\underline{{{contact['email']}}}}} $|$ 
-    \\href{{https://{contact['linkedin']}}}{{\\underline{{{contact['linkedin']}}}}} $|$
-    \\href{{https://{contact['github']}}}{{\\underline{{{contact['github']}}}}}
+    \\textbf{{\\Huge \\scshape {escape_latex(contact['name'])}}} \\\\ \\vspace{{1pt}}
+    \\small {escape_latex(contact['phone'])} $|$ \\href{{mailto:{contact['email']}}}{{\\underline{{{escape_latex(contact['email'])}}}}} $|$ 
+    \\href{{https://{contact['linkedin']}}}{{\\underline{{{escape_latex(contact['linkedin'])}}}}} $|$
+    \\href{{https://{contact['github']}}}{{\\underline{{{escape_latex(contact['github'])}}}}}
 \\end{{center}}
 
 """)
@@ -344,16 +405,16 @@ def build_latex_from_json(resume_json: dict) -> str:
         
         for edu in resume_json['education']:
             latex_parts.append(f"""    \\resumeSubheading
-      {{{edu['school']}}}{{{edu['location']}}}
-      {{{edu['degree']}}}{{{edu['dates']}}}""")
+      {{{escape_latex(edu['school'])}}}{{{escape_latex(edu['location'])}}}
+      {{{escape_latex(edu['degree'])}}}{{{escape_latex(edu['dates'])}}}""")
             
             # Add GPA or honors if present
             if edu.get('gpa') or edu.get('honors'):
                 latex_parts.append("      \\resumeItemListStart")
                 if edu.get('gpa'):
-                    latex_parts.append(f"        \\resumeItem{{GPA: {edu['gpa']}}}")
+                    latex_parts.append(f"        \\resumeItem{{GPA: {escape_latex(str(edu['gpa']))}}}")
                 for honor in edu.get('honors', []):
-                    latex_parts.append(f"        \\resumeItem{{{honor}}}")
+                    latex_parts.append(f"        \\resumeItem{{{escape_latex(honor)}}}")
                 latex_parts.append("      \\resumeItemListEnd")
         
         latex_parts.append("  \\resumeSubHeadingListEnd\n")
@@ -366,15 +427,14 @@ def build_latex_from_json(resume_json: dict) -> str:
         
         for exp in resume_json['experience']:
             latex_parts.append(f"""    \\resumeSubheading
-      {{{exp['title']}}}{{{exp['dates']}}}
-      {{{exp['company']}}}{{{exp['location']}}}
+      {{{escape_latex(exp['title'])}}}{{{escape_latex(exp['dates'])}}}
+      {{{escape_latex(exp['company'])}}}{{{escape_latex(exp['location'])}}}
       \\resumeItemListStart""")
             
             for bullet in exp['bullets']:
-                # Escape special LaTeX characters
-                bullet = bullet.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$')
-                bullet = bullet.replace('#', '\\#').replace('_', '\\_')
-                latex_parts.append(f"        \\resumeItem{{{bullet}}}")
+                # Use comprehensive escaping function
+                escaped_bullet = escape_latex(bullet)
+                latex_parts.append(f"        \\resumeItem{{{escaped_bullet}}}")
             
             latex_parts.append("      \\resumeItemListEnd\n")
         
@@ -387,22 +447,31 @@ def build_latex_from_json(resume_json: dict) -> str:
         latex_parts.append("    \\resumeSubHeadingListStart")
         
         for proj in resume_json['projects']:
+            # Handle project name with optional link
+            project_name = escape_latex(proj['name'])
+            if proj.get('link'):
+                # Make project name clickable
+                link = proj['link']
+                if not link.startswith(('http://', 'https://')):
+                    link = 'https://' + link
+                project_name = f"\\href{{{link}}}{{\\underline{{{project_name}}}}}"
+            
             # Handle projects with or without dates
             dates_part = proj.get('dates', '')
             if dates_part and dates_part.upper() not in ['NONE', 'N/A', 'NA', 'NULL']:
                 latex_parts.append(f"""      \\resumeProjectHeading
-          {{\\textbf{{{proj['name']}}} $|$ \\emph{{{proj.get('tech', '')}}}}}{{{dates_part}}}""")
+          {{\\textbf{{{project_name}}} $|$ \\emph{{{escape_latex(proj.get('tech', ''))}}}}}{{{escape_latex(dates_part)}}}""")
             else:
                 # For projects without dates, use empty braces
                 latex_parts.append(f"""      \\resumeProjectHeading
-          {{\\textbf{{{proj['name']}}} $|$ \\emph{{{proj.get('tech', '')}}}}}{{}}""")
+          {{\\textbf{{{project_name}}} $|$ \\emph{{{escape_latex(proj.get('tech', ''))}}}}}{{}}""")
             
             if proj.get('bullets'):
                 latex_parts.append("          \\resumeItemListStart")
                 for bullet in proj['bullets']:
-                    bullet = bullet.replace('&', '\\&').replace('%', '\\%').replace('$', '\\$')
-                    bullet = bullet.replace('#', '\\#').replace('_', '\\_')
-                    latex_parts.append(f"            \\resumeItem{{{bullet}}}")
+                    # Use comprehensive escaping function
+                    escaped_bullet = escape_latex(bullet)
+                    latex_parts.append(f"            \\resumeItem{{{escaped_bullet}}}")
                 latex_parts.append("          \\resumeItemListEnd")
         
         latex_parts.append("    \\resumeSubHeadingListEnd\n")
@@ -417,7 +486,7 @@ def build_latex_from_json(resume_json: dict) -> str:
         skills_items = []
         for category, items in resume_json['skills'].items():
             if items:  # Only add if there are items
-                skills_items.append(f"     \\textbf{{{category}}}: {items}")
+                skills_items.append(f"     \\textbf{{{escape_latex(category)}}}: {escape_latex(items)}")
         
         latex_parts.append(" \\\\\n".join(skills_items))
         
@@ -713,6 +782,13 @@ async def generate_resume(
                 tex_path = Path(temp_dir) / f"{generation_id}.tex"
                 with open(tex_path, 'w') as f:
                     f.write(latex_code)
+                
+                # Validate LaTeX before compilation
+                try:
+                    validate_latex_content(latex_code)
+                except ValueError as e:
+                    logger.error(f"LaTeX validation failed: {e}")
+                    raise ValueError(f"Invalid LaTeX generated: {e}")
                 
                 # Compile to PDF
                 output_path = Path(temp_dir) / f"{generation_id}.pdf"
