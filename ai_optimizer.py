@@ -2,12 +2,15 @@ import google.generativeai as genai
 import json
 from typing import Dict, List
 import re
+from intelligent_section_mapper import IntelligentSectionMapper, StructuredResumeGenerator
 
 
 class AIOptimizer:
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.section_mapper = IntelligentSectionMapper(api_key)
+        self.structured_generator = StructuredResumeGenerator(api_key)
         
     def create_optimization_prompt(self, resume_text: str, job_description: str) -> str:
         prompt = f"""You are an ATS optimization expert. Analyze this resume against the job description and provide an optimized version.
@@ -173,6 +176,50 @@ Return ONLY the complete LaTeX code with the resume content properly inserted, s
         except Exception as e:
             print(f"Error generating LaTeX with Gemini: {e}")
             raise
+    
+    def optimize_resume_structured(self, resume_data: Dict, job_description: str, job_title: str = "", company_name: str = "") -> Dict:
+        """
+        New structured approach: AI maps sections intelligently, then optimizes each section
+        """
+        try:
+            resume_text = resume_data.get('formatted_text', resume_data.get('raw_text', ''))
+            
+            # Step 1: Use AI to intelligently map sections
+            print("Step 1: Analyzing and mapping resume sections...")
+            structured_resume = self.section_mapper.analyze_and_map_sections(resume_text)
+            
+            # Step 2: Optimize each section against job description  
+            print("Step 2: Optimizing each section for ATS compatibility...")
+            optimized_resume = self.structured_generator.optimize_structured_resume(
+                structured_resume, job_description, job_title, company_name
+            )
+            
+            # Step 3: Generate LaTeX using structured data
+            print("Step 3: Generating LaTeX from structured data...")
+            latex_code = self.structured_generator.generate_structured_latex(optimized_resume)
+            
+            # Prepare result in expected format
+            optimization_summary = optimized_resume.get('optimization_summary', {})
+            
+            result = {
+                'optimized_resume': resume_text,  # Keep original for compatibility
+                'structured_resume': optimized_resume,  # New structured data
+                'latex_code': latex_code,  # Generated LaTeX
+                'changes_made': optimization_summary.get('changes_made', []),
+                'keywords_added': optimization_summary.get('keywords_added', []),
+                'score': {
+                    'before': optimization_summary.get('ats_score_before', 5),
+                    'after': optimization_summary.get('ats_score_after', 8)
+                },
+                'contact_info': optimized_resume.get('contact_info', resume_data.get('contact_info', {}))
+            }
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error during structured optimization: {e}")
+            # Fallback to original method
+            return self.optimize_resume(resume_data, job_description)
     
     def optimize_resume(self, resume_data: Dict, job_description: str) -> Dict:
         try:

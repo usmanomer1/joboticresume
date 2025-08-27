@@ -24,9 +24,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-# JWT for authentication
+# JWT for authentication  
 import jwt
-from jwt.exceptions import InvalidTokenError
+from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
+import requests
 
 # Import our existing modules
 from resume_parser import ResumeParser
@@ -49,17 +50,32 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# Supabase JWT configuration
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")  # Get from Supabase dashboard
+if not SUPABASE_JWT_SECRET:
+    logger.warning("SUPABASE_JWT_SECRET not set - authentication will fail")
 
 # File upload limits
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 ALLOWED_MIME_TYPES = ["application/pdf"]
 
 # Rate limiting
-limiter = Limiter(key_func=get_remote_address)
+def get_user_id_for_rate_limit(request: Request):
+    """Extract user ID from JWT token for rate limiting, fallback to IP"""
+    try:
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("sub")
+            if user_id:
+                return f"user:{user_id}"
+    except:
+        pass
+    # Fallback to IP for unauthenticated requests  
+    return f"ip:{get_remote_address(request)}"
+
+limiter = Limiter(key_func=get_user_id_for_rate_limit)
 
 # App lifecycle
 @asynccontextmanager
@@ -140,23 +156,41 @@ CACHE_TTL_MINUTES = 60
 # Authentication
 security = HTTPBearer()
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+def verify_supabase_token(token: str) -> dict:
+    """Verify a Supabase JWT token and return the payload"""
+    try:
+        # Decode and verify the Supabase JWT
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+            options={"verify_aud": True}
+        )
+        return payload
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except InvalidTokenError as e:
+        logger.error(f"Token validation error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Verify the Supabase JWT token from the Authorization header"""
     token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
-        return user_id
-    except InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    # Verify it's a valid Supabase JWT
+    payload = verify_supabase_token(token)
+    
+    # Extract user ID from Supabase token
+    user_id = payload.get("sub")  # Supabase uses 'sub' for user ID
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token: no user ID")
+    
+    # Optional: You can also extract email, role, etc.
+    # email = payload.get("email")
+    # role = payload.get("role")
+    
+    return user_id
 
 # Cleanup task
 async def cleanup_old_cache():
@@ -508,17 +542,18 @@ async def health_check():
     # Simple health check that doesn't depend on external services
     return {"status": "healthy", "version": "1.0.0"}
 
-class TokenRequest(BaseModel):
-    user_id: str = Field(..., min_length=1, max_length=100)
+# Remove the mock auth endpoint - frontend should use Supabase Auth directly
+# The frontend will get tokens from Supabase and send them to our API
 
-@app.post("/api/auth/token")
-@limiter.limit("5/minute")
-async def get_token(request: Request, token_request: TokenRequest):
-    """Get authentication token (in production, this would verify credentials)"""
-    # In production, verify user credentials with Supabase Auth
-    # For now, just create a token
-    access_token = create_access_token(data={"sub": token_request.user_id})
-    return {"access_token": access_token, "token_type": "bearer"}
+@app.get("/api/auth/verify")
+@limiter.limit("10/minute")
+async def verify_auth(request: Request, user_id: str = Depends(verify_token)):
+    """Verify that the user's Supabase token is valid"""
+    return {
+        "authenticated": True,
+        "user_id": user_id,
+        "message": "Token is valid"
+    }
 
 @app.post("/api/resume/analyze")
 @limiter.limit("10/minute")
@@ -558,23 +593,20 @@ async def analyze_resume(
             tmp_file_path = tmp_file.name
         
         try:
-            # Initialize parser and extract text
-            resume_parser = ResumeParser()
+            # Initialize parser with AI capabilities
+            resume_parser = ResumeParser(gemini_api_key=GEMINI_API_KEY)
             resume_text = resume_parser.extract_text_from_pdf(tmp_file_path)
             contact_info = resume_parser.extract_contact_info(resume_text)
             
             logger.info(f"Extracted {len(resume_text)} characters from PDF")
             logger.info(f"Contact info: {bool(contact_info)}")
             
-            # Parse sections
-            sections = resume_parser.identify_sections(resume_text)
+            # Parse sections using AI-powered parsing
+            resume_data = resume_parser.parse_resume(tmp_file_path)
             
-            resume_data = {
-                'raw_text': resume_text,
-                'formatted_text': resume_text,
-                'contact_info': contact_info,
-                'sections': sections
-            }
+            logger.info(f"AI parsing used: {resume_data.get('ai_parsed', False)}")
+            if resume_data.get('section_mappings'):
+                logger.info(f"Section mappings: {resume_data['section_mappings']}")
         except Exception as parse_error:
             logger.error(f"PDF parsing error: {str(parse_error)}")
             logger.error(f"Error type: {type(parse_error).__name__}")
@@ -726,80 +758,115 @@ async def generate_resume(
             logger.info(f"Resume text length: {len(resume_data.get('raw_text', ''))}")
             
             try:
-                logger.info("Calling Gemini for optimization...")
-                optimization_result = optimizer.optimize_resume(
+                logger.info("Calling Gemini for structured optimization...")
+                # Use the new structured approach
+                optimization_result = optimizer.optimize_resume_structured(
                     resume_data,
-                    analysis_data['request']['jobDescription']
+                    analysis_data['request']['jobDescription'],
+                    analysis_data['request']['jobTitle'],
+                    analysis_data['request']['companyName']
                 )
-                logger.info("Optimization complete")
+                logger.info("Structured optimization complete")
                 logger.info(f"Optimized text length: {len(optimization_result.get('optimized_resume', ''))}")
+                
+                # Check if we have LaTeX code from structured generation
+                if 'latex_code' in optimization_result:
+                    logger.info("Using LaTeX code from structured generation")
+                    latex_code = optimization_result['latex_code']
+                    
+                    # Save LaTeX file
+                    tex_path = Path(temp_dir) / f"{generation_id}.tex"
+                    with open(tex_path, 'w') as f:
+                        f.write(latex_code)
+                    
+                    # Compile to PDF
+                    output_path = Path(temp_dir) / f"{generation_id}.pdf"
+                    latex_generator = GeminiLatexGenerator(optimizer)
+                    success = latex_generator._compile_latex(str(tex_path), str(output_path))
+                    
+                    if not success:
+                        logger.warning("Structured LaTeX compilation failed, falling back to JSON approach")
+                        optimization_result.pop('latex_code', None)  # Remove to trigger fallback
+                    else:
+                        logger.info("Structured LaTeX compilation successful")
+                        
             except Exception as opt_error:
-                logger.error(f"Optimization error: {str(opt_error)}")
-                raise ValueError(f"Failed to optimize resume: {str(opt_error)}")
-            
-            # Use JSON-based approach for more reliable LaTeX generation
-            logger.info("Using JSON-based LaTeX generation approach...")
-            
-            # Extract structured data from optimized resume
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            
-            json_prompt = create_json_extraction_prompt(
-                optimization_result['optimized_resume'],
-                optimization_result['contact_info']
-            )
-            
-            try:
-                logger.info("Extracting structured data from Gemini...")
-                response = model.generate_content(json_prompt)
-                json_text = response.text.strip()
-                
-                # Clean up the response
-                if json_text.startswith('```json'):
-                    json_text = json_text[7:]
-                if json_text.endswith('```'):
-                    json_text = json_text[:-3]
-                
-                resume_json = json.loads(json_text)
-                logger.info("Successfully extracted structured data")
-                
-            except Exception as e:
-                logger.error(f"JSON extraction failed: {e}")
-                # Fallback to traditional method
-                logger.info("Falling back to traditional LaTeX generation...")
-                latex_generator = GeminiLatexGenerator(optimizer)
-                output_path = Path(temp_dir) / f"{generation_id}.pdf"
-                latex_generator.generate_latex(
-                    optimized_data=optimization_result,
-                    output_path=str(output_path)
-                )
-            else:
-                # Build LaTeX from JSON
-                logger.info("Building LaTeX from structured data...")
-                latex_code = build_latex_from_json(resume_json)
-                
-                # Save LaTeX file
-                tex_path = Path(temp_dir) / f"{generation_id}.tex"
-                with open(tex_path, 'w') as f:
-                    f.write(latex_code)
-                
-                # Validate LaTeX before compilation
+                logger.error(f"Structured optimization error: {str(opt_error)}")
+                logger.info("Falling back to original optimization method...")
                 try:
-                    validate_latex_content(latex_code)
-                except ValueError as e:
-                    logger.error(f"LaTeX validation failed: {e}")
-                    raise ValueError(f"Invalid LaTeX generated: {e}")
+                    optimization_result = optimizer.optimize_resume(
+                        resume_data,
+                        analysis_data['request']['jobDescription']
+                    )
+                    logger.info("Fallback optimization complete")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback optimization also failed: {str(fallback_error)}")
+                    raise ValueError(f"Failed to optimize resume: {str(fallback_error)}")
+            
+            # Only use JSON-based approach if structured generation didn't work
+            if 'latex_code' not in optimization_result:
+                logger.info("Using JSON-based LaTeX generation approach...")
                 
-                # Compile to PDF
-                output_path = Path(temp_dir) / f"{generation_id}.pdf"
-                latex_generator = GeminiLatexGenerator(optimizer)
-                success = latex_generator._compile_latex(str(tex_path), str(output_path))
+                # Extract structured data from optimized resume
+                genai.configure(api_key=GEMINI_API_KEY)
+                model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                if not success:
-                    raise ValueError("LaTeX compilation failed")
+                json_prompt = create_json_extraction_prompt(
+                    optimization_result['optimized_resume'],
+                    optimization_result['contact_info']
+                )
                 
-                logger.info(f"PDF generated at {output_path}")
-                logger.info(f"PDF size: {os.path.getsize(output_path) if output_path.exists() else 'not found'}")
+                try:
+                    logger.info("Extracting structured data from Gemini...")
+                    response = model.generate_content(json_prompt)
+                    json_text = response.text.strip()
+                    
+                    # Clean up the response
+                    if json_text.startswith('```json'):
+                        json_text = json_text[7:]
+                    if json_text.endswith('```'):
+                        json_text = json_text[:-3]
+                    
+                    resume_json = json.loads(json_text)
+                    logger.info("Successfully extracted structured data")
+                    
+                except Exception as e:
+                    logger.error(f"JSON extraction failed: {e}")
+                    # Fallback to traditional method
+                    logger.info("Falling back to traditional LaTeX generation...")
+                    latex_generator = GeminiLatexGenerator(optimizer)
+                    output_path = Path(temp_dir) / f"{generation_id}.pdf"
+                    latex_generator.generate_latex(
+                        optimized_data=optimization_result,
+                        output_path=str(output_path)
+                    )
+                else:
+                    # Build LaTeX from JSON
+                    logger.info("Building LaTeX from structured data...")
+                    latex_code = build_latex_from_json(resume_json)
+                    
+                    # Save LaTeX file
+                    tex_path = Path(temp_dir) / f"{generation_id}.tex"
+                    with open(tex_path, 'w') as f:
+                        f.write(latex_code)
+                    
+                    # Validate LaTeX before compilation
+                    try:
+                        validate_latex_content(latex_code)
+                    except ValueError as e:
+                        logger.error(f"LaTeX validation failed: {e}")
+                        raise ValueError(f"Invalid LaTeX generated: {e}")
+                    
+                    # Compile to PDF
+                    output_path = Path(temp_dir) / f"{generation_id}.pdf"
+                    latex_generator = GeminiLatexGenerator(optimizer)
+                    success = latex_generator._compile_latex(str(tex_path), str(output_path))
+                    
+                    if not success:
+                        raise ValueError("LaTeX compilation failed")
+                    
+                    logger.info(f"PDF generated at {output_path}")
+                    logger.info(f"PDF size: {os.path.getsize(output_path) if output_path.exists() else 'not found'}")
             
             # Upload to Supabase storage with temporary path
             supabase_url = os.getenv("SUPABASE_URL")

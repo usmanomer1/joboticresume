@@ -114,8 +114,8 @@ async def analyze_resume(request: AnalyzeRequest):
     try:
         analysis_id = str(uuid.uuid4())
         
-        # Parse resume from text or file
-        resume_parser = ResumeParser()
+        # Parse resume from text or file with AI capabilities
+        resume_parser = ResumeParser(gemini_api_key=GEMINI_API_KEY)
         
         if request.resumeFile:
             # Decode base64 PDF and save temporarily
@@ -259,13 +259,17 @@ async def generate_resume(request: GenerateRequest, background_tasks: Background
         if request.additionalInstructions:
             enhanced_job_desc += f"\n\nADDITIONAL REQUIREMENTS: {request.additionalInstructions}"
         
-        # Optimize resume
-        optimized_data = optimizer.optimize_resume(resume_data, enhanced_job_desc)
+        # Optimize resume using structured approach
+        try:
+            optimized_data = optimizer.optimize_resume_structured(
+                resume_data, enhanced_job_desc, 
+                original_request.jobTitle, original_request.companyName
+            )
+        except Exception as e:
+            print(f"Structured optimization failed, falling back: {e}")
+            optimized_data = optimizer.optimize_resume(resume_data, enhanced_job_desc)
         
         # Generate PDF using LaTeX
-        generator = GeminiLatexGenerator(optimizer)
-        
-        # Create output directory
         output_dir = Path("generated_resumes")
         output_dir.mkdir(exist_ok=True)
         
@@ -274,8 +278,25 @@ async def generate_resume(request: GenerateRequest, background_tasks: Background
         filename = f"optimized_resume_{original_request.companyName}_{timestamp}.pdf"
         output_path = output_dir / filename
         
-        # Generate the PDF
-        generator.generate_latex(optimized_data, str(output_path))
+        # Check if we have structured LaTeX code
+        if 'latex_code' in optimized_data:
+            print("Using structured LaTeX generation")
+            # Save LaTeX file
+            tex_path = output_dir / f"{filename}.tex"
+            with open(tex_path, 'w') as f:
+                f.write(optimized_data['latex_code'])
+            
+            # Compile to PDF
+            generator = GeminiLatexGenerator(optimizer)
+            success = generator._compile_latex(str(tex_path), str(output_path))
+            
+            if not success:
+                print("Structured LaTeX compilation failed, falling back to traditional method")
+                generator.generate_latex(optimized_data, str(output_path))
+        else:
+            print("Using traditional LaTeX generation")
+            generator = GeminiLatexGenerator(optimizer)
+            generator.generate_latex(optimized_data, str(output_path))
         
         # Upload to Supabase storage if available
         preview_url = f"/api/resume/preview/{generation_id}"
