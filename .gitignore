@@ -54,11 +54,20 @@ Thumbs.db
 htmlcov/
 test_*.py
 
-# Output files (optional - uncomment if you don't want to track these)
-# output/*.pdf
-# output/*.tex
-# output/*.json
+# Output files - don't track generated files
+output/*.pdf
+output/*.tex
+output/*.json
 
-# Input files (optional - uncomment if you don't want to track test files)
-# input/*.pdf
-# input/*.txt
+# Input files - don't track user uploads
+input/*.pdf
+input/*.txt
+
+# Test files
+*test*.pdf
+*test*.json
+analyze_response.json
+analyze_result.json
+response.json
+fixed_resume.pdf
+final_*.pdf
