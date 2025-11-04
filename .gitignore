@@ -1,0 +1,62 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.development
+.env.production
+*.env
+config.json
+RAILWAY_ENV_VARS.txt
+SUPABASE_AUTH_ENV_VARS.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output files (optional - uncomment if you don't want to track these)
+# output/*.pdf
+# output/*.tex
+# output/*.json
+
+# Input files (optional - uncomment if you don't want to track test files)
+# input/*.pdf
+# input/*.txt
