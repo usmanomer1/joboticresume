@@ -5,6 +5,7 @@
 .env.production
 *.env
 config.json
+.mcp.json
 RAILWAY_ENV_VARS.txt
 SUPABASE_AUTH_ENV_VARS.md
 
